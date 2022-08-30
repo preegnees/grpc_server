@@ -146,6 +146,7 @@ func (s *rpcServer) gracefulStop() {
 }
 
 func (s *rpcServer) stop() {
+	
 	if s.running {
 		s.stopCh <- struct{}{}
 		<-s.doneCh

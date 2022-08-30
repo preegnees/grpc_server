@@ -99,7 +99,6 @@ func (c *rpcClient) connect() (err error) {
 		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
 			InsecureSkipVerify: true,
 		})),
-
 		grpc.WithPerRPCCredentials(&RPCAuth{
 			PSK: c.cnf.AuthToken,
 		}),
@@ -112,6 +111,7 @@ func (c *rpcClient) connect() (err error) {
 			Timeout: time.Duration(c.cnf.RequestTimeout) * time.Second,
 		}),
 	}
+
 	c.connection, err = grpc.Dial(c.cnf.Addr, connOpts...)
 	if err != nil {
 		return err
@@ -131,6 +131,7 @@ func (c *rpcClient) connect() (err error) {
 }
 
 func (c *rpcClient) disconnect() error {
+
 	conn := c.connection
 	c.connection = nil
 	err := conn.Close()
@@ -138,6 +139,7 @@ func (c *rpcClient) disconnect() error {
 }
 
 func (c *rpcClient) startStream() {
+	
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -157,7 +159,7 @@ func (c *rpcClient) startStream() {
 			in, err := stream.Recv()
 			if err == io.EOF {
 				log.Println(fmt.Errorf("$Ошибка EOF при чтении, err:=%v", err))
-				// cancel()
+				cancel()
 				break
 			}
 			if err != nil {
@@ -183,7 +185,7 @@ func (c *rpcClient) startStream() {
 				c.errCh<- fmt.Errorf("$Ошибка при чтении писании, err:=%v", err)
 			}
 		case <-ctx.Done():
-			c.logger.Println("Channel closed")
+			c.logger.Println("Канал закрыт")
 			return
 		}
 	}
