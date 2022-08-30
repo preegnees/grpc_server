@@ -2,8 +2,8 @@ package models
 
 // CnfServer ...
 type CnfServer struct {
-	Addr      string
-	AuthToken string
+	Addr            string
+	AuthToken       string
 	Restart         bool
 	ShutdownTimeout int
 	CertPem         string
@@ -12,8 +12,8 @@ type CnfServer struct {
 
 // CnfClient ...
 type CnfClient struct {
-	Addr      string
-	AuthToken string
+	Addr              string
+	AuthToken         string
 	RequestTimeout    int
 	KeepaliveInterval int
 	Reconnect         bool

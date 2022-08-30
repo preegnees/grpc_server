@@ -10,10 +10,9 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-	"strings"
 
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 
 	m "streaming/pkg/models"
@@ -91,7 +90,7 @@ func (s *rpcServer) start() {
 			grpc.Creds(creds),
 			grpc.StreamInterceptor(s.authStreamInterceptor),
 		)
-		
+
 		pb.RegisterMyServiceServer(s.grpcServer, s)
 
 		go func() {
@@ -146,23 +145,64 @@ func (s *rpcServer) gracefulStop() {
 }
 
 func (s *rpcServer) stop() {
-	
+
 	if s.running {
 		s.stopCh <- struct{}{}
 		<-s.doneCh
 	}
 }
 
+var streams map[pb.MyService_StreamingServer]struct{} = make(map[pb.MyService_StreamingServer]struct{}, 0)
+var access map[string]struct{} = map[string]struct{}{
+	"1": struct{}{},
+	"2": struct{}{},
+}
+
 func (s *rpcServer) Streaming(stream pb.MyService_StreamingServer) error {
 
 	s.logger.Println("клиент подключился")
 
+
+	streams[stream] = struct{}{}
+	for {
+		if len(streams) == 2 {
+			break
+		}
+	}
+
+	strms := make([]pb.MyService_StreamingServer, 0)
+
+	for k := range streams {
+		strms = append(strms, k)
+	}
+	
+	retCh := make(chan error)
+	go s.logic(retCh, strms[0], strms[1])
+	go s.logic(retCh, strms[1], strms[0])
+	select{
+	case err:= <-retCh:
+		return err
+	}
+}
+
+func (s *rpcServer) logic(retCh chan error, stream1, stream2 pb.MyService_StreamingServer) error {
+	
 	timer := time.NewTicker(2 * time.Second)
 	defer timer.Stop()
 
-	go func() {
-		for {
-			in, err := stream.Recv()
+	for {
+		select {
+		case <-stream1.Context().Done():
+			s.logger.Println("Клиент отключился, контекст завершен")
+			retCh <- nil
+			return nil
+		case <-s.runningCtx.Done():
+			s.logger.Println("Главный контекст завершен")
+			retCh <- nil
+			return nil
+		case <-timer.C:
+
+			in, err := stream1.Recv()
 			if err == io.EOF {
 				log.Println(fmt.Errorf("$Ошибка EOF при чтении, err:=%v", err))
 				break
@@ -170,25 +210,13 @@ func (s *rpcServer) Streaming(stream pb.MyService_StreamingServer) error {
 				s.logger.Println(fmt.Errorf("$Ошибка при чтении сооьбщения, err:=%v", err))
 				break
 			}
-
-			s.logger.Println("Received Pong message:", in.Pong)
-		}
-	}()
-
-	for {
-		select {
-		case <-stream.Context().Done():
-			s.logger.Println("Клиент отключился, контекст завершен")
-			return nil
-		case <-s.runningCtx.Done():
-			s.logger.Println("Главный контекст завершен")
-			return nil
-		case <-timer.C:
-			err := stream.Send(&pb.Res{
-				Ping: true,
+			
+			err = stream2.Send(&pb.Res{
+				Ping: in.Pong,
 			})
 			if err == io.EOF {
 				log.Println(fmt.Errorf("$Ошибка EOF при писании, err:=%v", err))
+				retCh <- nil
 				return nil
 			}
 			if err != nil {
@@ -199,8 +227,53 @@ func (s *rpcServer) Streaming(stream pb.MyService_StreamingServer) error {
 }
 
 
+// s.logger.Println("клиент подключился")
+
+// 	timer := time.NewTicker(2 * time.Second)
+// 	defer timer.Stop()
+
+// 	go func() {
+// 		for {
+// 			in, err := stream.Recv()
+// 			if err == io.EOF {
+// 				log.Println(fmt.Errorf("$Ошибка EOF при чтении, err:=%v", err))
+// 				break
+// 			} else if err != nil {
+// 				s.logger.Println(fmt.Errorf("$Ошибка при чтении сооьбщения, err:=%v", err))
+// 				break
+// 			}
+
+// 			s.logger.Println("Received Pong message:", in.Pong)
+// 		}
+// 	}()
+
+// 	for {
+// 		select {
+// 		case <-stream.Context().Done():
+// 			s.logger.Println("Клиент отключился, контекст завершен")
+// 			retCh <- nil
+// 			return nil
+// 		case <-s.runningCtx.Done():
+// 			s.logger.Println("Главный контекст завершен")
+// 			retCh <- nil
+// 			return nil
+// 		case <-timer.C:
+// 			err := stream.Send(&pb.Res{
+// 				Ping: true,
+// 			})
+// 			if err == io.EOF {
+// 				log.Println(fmt.Errorf("$Ошибка EOF при писании, err:=%v", err))
+// 				retCh <- nil
+// 				return nil
+// 			}
+// 			if err != nil {
+// 				log.Println(fmt.Errorf("$Ошибка при чтении писании, err:=%v", err))
+// 			}
+// 		}
+// 	}
+
 func (s *rpcServer) authStreamInterceptor(srv interface{}, srvStream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) (err error) {
-	
+
 	log.Println("авторизация пройдена")
 
 	m, ok := metadata.FromIncomingContext(srvStream.Context())
@@ -211,9 +284,9 @@ func (s *rpcServer) authStreamInterceptor(srv interface{}, srvStream grpc.Server
 		return fmt.Errorf("$Ошибка при авторизации, err:=%v", err)
 	}
 
-	if strings.TrimPrefix(m["authorization"][0], "Bearer ") != s.cnf.AuthToken {
+	_, ok = access[m["authorization"][0]]
+	if !ok {
 		return fmt.Errorf("$Ошибка при авторизации, err:=%v", err)
 	}
-
 	return handler(srv, srvStream)
 }

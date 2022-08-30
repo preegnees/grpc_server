@@ -83,7 +83,7 @@ type RPCAuth struct {
 func (a *RPCAuth) GetRequestMetadata(ctx context.Context, in ...string) (map[string]string, error) {
 
 	return map[string]string{
-		"authorization": "Bearer " + a.PSK,
+		"authorization": a.PSK,
 	}, nil
 }
 
@@ -139,7 +139,7 @@ func (c *rpcClient) disconnect() error {
 }
 
 func (c *rpcClient) startStream() {
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
