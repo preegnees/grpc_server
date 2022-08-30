@@ -1,0 +1,190 @@
+package cli
+
+import (
+	"context"
+	"crypto/tls"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"os/signal"
+	"time"
+
+	gops "github.com/google/gops/agent"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
+
+	m "streaming/pkg/models"
+	pb "streaming/pkg/proto"
+)
+
+type rpcClient struct {
+	pb.MyServiceClient
+
+	connection *grpc.ClientConn
+	logger     *log.Logger
+	errCh      chan error
+	cnf        m.CnfClient
+}
+
+var _ m.ICli = (*rpcClient)(nil)
+
+func New() m.ICli {
+
+	return &rpcClient{}
+}
+
+func (c *rpcClient) Run(cnf m.CnfClient) error {
+
+	if err := gops.Listen(gops.Options{}); err != nil {
+		return fmt.Errorf("$Ошибка при прослкшивании gops, err:=%v", err)
+	}
+
+	c.cnf = cnf
+
+	c.init()
+	err := c.connect()
+	if err != nil {
+		return fmt.Errorf("$Ошибка при подключении, err:=%v", err)
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh)
+
+	select {
+	case <-sigCh:
+		c.logger.Println("Получен сигнал об окончании работы")
+		err = c.disconnect()
+		if err != nil {
+			return fmt.Errorf("$Ошибка при отключении от сервера, err:=%v", err)
+		}
+		return nil
+	case err := <-c.errCh:
+		ed := c.disconnect()
+		if ed != nil {
+			ed = fmt.Errorf("$Ошибка при отключении от сервера, err:=%v", ed)
+		}
+		return fmt.Errorf("$Произошла ошибка во время работы, err:=%v, %v", err, ed)
+	}
+}
+
+func (c *rpcClient) init() {
+
+	c.logger = log.New(os.Stdout, "grpc: ", log.Ldate|log.Ltime|log.LUTC)
+	c.errCh = make(chan error)
+}
+
+type RPCAuth struct {
+	PSK string
+}
+
+func (a *RPCAuth) GetRequestMetadata(ctx context.Context, in ...string) (map[string]string, error) {
+
+	return map[string]string{
+		"authorization": "Bearer " + a.PSK,
+	}, nil
+}
+
+func (a *RPCAuth) RequireTransportSecurity() bool {
+
+	return true
+}
+
+func (c *rpcClient) connect() (err error) {
+
+	connOpts := []grpc.DialOption{
+		grpc.WithBlock(),
+		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
+			InsecureSkipVerify: true,
+		})),
+
+		grpc.WithPerRPCCredentials(&RPCAuth{
+			PSK: c.cnf.AuthToken,
+		}),
+		grpc.WithConnectParams(grpc.ConnectParams{
+			Backoff:           backoff.DefaultConfig,
+			MinConnectTimeout: time.Duration(c.cnf.RequestTimeout) * time.Second,
+		}),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:    time.Duration(c.cnf.KeepaliveInterval) * time.Second,
+			Timeout: time.Duration(c.cnf.RequestTimeout) * time.Second,
+		}),
+	}
+	c.connection, err = grpc.Dial(c.cnf.Addr, connOpts...)
+	if err != nil {
+		return err
+	}
+
+	c.MyServiceClient = pb.NewMyServiceClient(c.connection)
+
+	go func() {
+		for c.connection != nil {
+			c.logger.Println("Подключение к серверу")
+			c.startStream()
+			time.Sleep(1 * time.Second)
+		}
+	}()
+
+	return nil
+}
+
+func (c *rpcClient) disconnect() error {
+	conn := c.connection
+	c.connection = nil
+	err := conn.Close()
+	return err
+}
+
+func (c *rpcClient) startStream() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stream, err := c.Streaming(ctx, grpc.WaitForReady(true))
+	if err != nil {
+		c.errCh <- fmt.Errorf("Error while connecting to the Channel stream:%v", err)
+		return
+	}
+	defer stream.CloseSend()
+	c.logger.Println("Канал подключен")
+
+	timer := time.NewTicker(3 * time.Second)
+	defer timer.Stop()
+
+	go func() {
+		for {
+			in, err := stream.Recv()
+			if err == io.EOF {
+				log.Println(fmt.Errorf("$Ошибка EOF при чтении, err:=%v", err))
+				// cancel()
+				break
+			}
+			if err != nil {
+				log.Println(fmt.Errorf("$Ошибка при чтении сооьбщения, err:=%v", err))
+				break
+			}
+
+			c.logger.Println("Received Ping message:", in.Ping)
+		}
+	}()
+
+	for {
+		select {
+		case <-timer.C:
+			err := stream.Send(&pb.Req{
+				Pong: true,
+			})
+			if err == io.EOF {
+				log.Println(fmt.Errorf("$Ошибка EOF при писании, err:=%v", err))
+				return
+			}
+			if err != nil {
+				c.errCh<- fmt.Errorf("$Ошибка при чтении писании, err:=%v", err)
+			}
+		case <-ctx.Done():
+			c.logger.Println("Channel closed")
+			return
+		}
+	}
+}

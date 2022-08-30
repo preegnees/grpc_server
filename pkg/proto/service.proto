@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package service;
+
+option go_package = "./";
+
+service MyService {
+  rpc Streaming(stream Req) returns (stream Res);
+}
+
+message Req {
+  bool pong = 1;
+}
+
+message Res {
+  bool ping = 1;
+}
