@@ -151,7 +151,7 @@ func (c *rpcClient) startStream() {
 	defer stream.CloseSend()
 	c.logger.Println("Канал подключен")
 
-	timer := time.NewTicker(3 * time.Second)
+	timer := time.NewTicker(500 * time.Millisecond)
 	defer timer.Stop()
 
 	go func() {

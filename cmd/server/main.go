@@ -16,7 +16,7 @@ func main() {
 			Addr: "localhost:55001",
 			AuthToken: "hello world",
 			Restart: false,
-			ShutdownTimeout: 15,
+			ShutdownTimeout: 2,
 			CertPem: "C:\\Users\\secrr\\Desktop\\my_streaming\\tls\\cert.pem",
 			KeyPem: "C:\\Users\\secrr\\Desktop\\my_streaming\\tls\\key.pem",
 		},

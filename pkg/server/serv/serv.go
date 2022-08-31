@@ -3,7 +3,10 @@ package serv
 import (
 	"context"
 	"fmt"
-	"io"
+	// "io"
+	"bytes"
+	"encoding/gob"
+	//
 	"log"
 	"net"
 	"os"
@@ -160,13 +163,54 @@ var access map[string]struct{} = map[string]struct{}{
 
 func (s *rpcServer) Streaming(stream pb.MyService_StreamingServer) error {
 
-	s.logger.Println("клиент подключился")
+	//
+	// gob.Register(map[pb.MyService_StreamingServer]interface{}{})
+	gob.Register(map[pb.MyService_StreamingServer]interface{}{})
+	var buff bytes.Buffer
 
+	// var in map[pb.MyService_StreamingServer]interface{} = map[pb.MyService_StreamingServer]interface{}{stream:struct{}{}}
+	// var out map[pb.MyService_StreamingServer]interface{} = make(map[pb.MyService_StreamingServer]interface{})
+	var in pb.MyService_StreamingServer = stream
+	var out pb.MyService_StreamingServer
+	// // Кодирование значения
+	// var in map[grpc.ServerStream]interface{} = map[grpc.ServerStream]interface{} {
+	// 	stream: struct{}{},
+	// }
+	log.Println(out)
+	enc := gob.NewEncoder(&buff)
+	dec := gob.NewDecoder(&buff)
+	errEnc := enc.Encode(&in)
+	log.Println("errEnc:", errEnc)
+	errDec := dec.Decode(&out)
+	log.Println("errDec:", errDec)
+	log.Println(out)
+	// err := enc.Encode(in)
+	// log.Println(err)
+	// fmt.Printf("%X\n", buff.Bytes())
+ 
+	// // Декодирование значения
+	// var out Test = Test{}
+	// dec := gob.NewDecoder(&buff)
+	// err = dec.Decode(&out)
+	// log.Println(err)
+	// fmt.Println(out)
+	return nil
+	//
+
+	s.logger.Println("клиент подключился", stream)
 
 	streams[stream] = struct{}{}
+	log.Println("состояние стримов после подключения:", streams)
+
 	for {
 		if len(streams) == 2 {
 			break
+		}
+		select {
+		case <- stream.Context().Done():
+			log.Println("клиент отключился", stream)
+			delete(streams, stream)
+			return nil
 		}
 	}
 
@@ -177,15 +221,31 @@ func (s *rpcServer) Streaming(stream pb.MyService_StreamingServer) error {
 	}
 	
 	retCh := make(chan error)
-	go s.logic(retCh, strms[0], strms[1])
-	go s.logic(retCh, strms[1], strms[0])
+	errStr1 := make(chan pb.MyService_StreamingServer)
+	errStr2 := make(chan pb.MyService_StreamingServer)
+
+	go s.logic(errStr1, errStr1, retCh, strms[0], strms[1])
+	go s.logic(errStr2, errStr1, retCh, strms[1], strms[0])
+	
+	// тогда нужно передавать отключение для двух каналов
+
 	select{
 	case err:= <-retCh:
 		return err
+	case str := <-errStr1:
+		delete(streams, str)
+		log.Println("состояние стримов после удаления:", streams)
+		s.logger.Println("stream:", str)
+		return fmt.Errorf("%v", str)
+	case str := <-errStr2:
+		delete(streams, str)
+		log.Println("состояние стримов после удаления:", streams)
+		s.logger.Println("stream:", str)
+		return fmt.Errorf("%v", str)
 	}
 }
 
-func (s *rpcServer) logic(retCh chan error, stream1, stream2 pb.MyService_StreamingServer) error {
+func (s *rpcServer) logic(errStr1, errStr2 chan pb.MyService_StreamingServer, retCh chan error, stream1, stream2 pb.MyService_StreamingServer) error {
 	
 	timer := time.NewTicker(2 * time.Second)
 	defer timer.Stop()
@@ -194,34 +254,42 @@ func (s *rpcServer) logic(retCh chan error, stream1, stream2 pb.MyService_Stream
 		select {
 		case <-stream1.Context().Done():
 			s.logger.Println("Клиент отключился, контекст завершен")
-			retCh <- nil
+			errStr1 <- stream1
+			// stream2.Context().Err()
+			// retCh <- nil
+			return nil
+		case <-stream2.Context().Done():
+			s.logger.Println("Клиент отключился, контекст завершен")
+			errStr2 <- stream2
+			// stream1.Context().Err()
+			// retCh <- nil
 			return nil
 		case <-s.runningCtx.Done():
 			s.logger.Println("Главный контекст завершен")
-			retCh <- nil
+			// retCh <- nil
 			return nil
 		case <-timer.C:
 
-			in, err := stream1.Recv()
-			if err == io.EOF {
-				log.Println(fmt.Errorf("$Ошибка EOF при чтении, err:=%v", err))
-				break
-			} else if err != nil {
-				s.logger.Println(fmt.Errorf("$Ошибка при чтении сооьбщения, err:=%v", err))
-				break
-			}
+			// in, err := stream1.Recv()
+			// if err == io.EOF {
+			// 	log.Println(fmt.Errorf("$Ошибка EOF при чтении, err:=%v", err))
+			// 	// retCh <- nil
+			// 	return nil
+			// } else if err != nil {
+			// 	s.logger.Println(fmt.Errorf("$Ошибка при чтении сооьбщения, err:=%v", err))
+			// }
 			
-			err = stream2.Send(&pb.Res{
-				Ping: in.Pong,
-			})
-			if err == io.EOF {
-				log.Println(fmt.Errorf("$Ошибка EOF при писании, err:=%v", err))
-				retCh <- nil
-				return nil
-			}
-			if err != nil {
-				log.Println(fmt.Errorf("$Ошибка при чтении писании, err:=%v", err))
-			}
+			// err = stream2.Send(&pb.Res{
+			// 	Ping: in.Pong,
+			// })
+			// if err == io.EOF {
+			// 	log.Println(fmt.Errorf("$Ошибка EOF при писании, err:=%v", err))
+			// 	// retCh <- nil
+			// 	return nil
+			// }
+			// if err != nil {
+			// 	log.Println(fmt.Errorf("$Ошибка при чтении писании, err:=%v", err))
+			// }
 		}
 	}
 }
