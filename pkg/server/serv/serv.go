@@ -3,9 +3,12 @@ package serv
 import (
 	"context"
 	"fmt"
+	"unsafe"
+
 	// "io"
 	"bytes"
 	"encoding/gob"
+
 	//
 	"log"
 	"net"
@@ -162,6 +165,26 @@ var access map[string]struct{} = map[string]struct{}{
 }
 
 func (s *rpcServer) Streaming(stream pb.MyService_StreamingServer) error {
+
+	fmt.Println("делаем поинтер из стрима", unsafe.Pointer(&stream))
+	p1 := unsafe.Pointer(&stream)
+	fmt.Println("из поинтера получаем строку", p1)
+	p2 := int(uintptr(p1))
+	fmt.Println("uintptr", p2)
+	p3 := unsafe.Pointer(uintptr(p2))
+	st := (*pb.MyService_StreamingServer)(p3)
+	fmt.Println("из поинтера в стрим", st)
+
+	streamToPoint := unsafe.Pointer(&stream)
+	pointToInt := int(uintptr(streamToPoint))
+	intToPoint := unsafe.Pointer(uintptr(pointToInt))
+	pointToStream := (*pb.MyService_StreamingServer)(intToPoint)
+	fmt.Println("из поинтера в стрим", pointToStream)
+
+	// var test unsafe.Pointer = unsafe.Pointer(&stream)
+
+	// fmt.Println("test", (*pb.MyService_StreamingServer)(test))
+	// fmt.Println("size stream", unsafe.Sizeof(stream))
 
 	//
 	// gob.Register(map[pb.MyService_StreamingServer]interface{}{})
