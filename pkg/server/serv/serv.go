@@ -2,14 +2,9 @@ package serv
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"unsafe"
-
-	// "io"
-	"bytes"
-	"encoding/gob"
-
-	//
+	"io"
 	"log"
 	"net"
 	"os"
@@ -21,6 +16,10 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 
+	"google.golang.org/grpc/peer"
+
+	pg "streaming/pkg/database/postgress"
+	st "streaming/pkg/database/storage"
 	m "streaming/pkg/models"
 	pb "streaming/pkg/proto"
 )
@@ -38,6 +37,8 @@ type rpcServer struct {
 	grpcServer    *grpc.Server
 	logger        *log.Logger
 	cnf           m.CnfServer
+	storage       m.IStreamStorage
+	pgDb          m.IPostgres
 }
 
 var _ m.IServ = (*rpcServer)(nil)
@@ -81,6 +82,18 @@ func (s *rpcServer) init() {
 	s.restartCh = make(chan struct{})
 	s.doneCh = make(chan struct{})
 	s.errCh = make(chan error)
+	s.storage = st.NewStorage()
+	s.pgDb = pg.New(
+		m.ConfPostgres{
+			TestMod:  true,
+			User:     "postgres",
+			Host:     "localhost",
+			Password: "1234",
+			Port:     "5432",
+			Database: "mydb",
+			Sslmode:  "disable",
+		},
+	)
 }
 
 func (s *rpcServer) start() {
@@ -94,7 +107,6 @@ func (s *rpcServer) start() {
 
 		s.grpcServer = grpc.NewServer(
 			grpc.Creds(creds),
-			grpc.StreamInterceptor(s.authStreamInterceptor),
 		)
 
 		pb.RegisterMyServiceServer(s.grpcServer, s)
@@ -158,226 +170,136 @@ func (s *rpcServer) stop() {
 	}
 }
 
-var streams map[pb.MyService_StreamingServer]struct{} = make(map[pb.MyService_StreamingServer]struct{}, 0)
-var access map[string]struct{} = map[string]struct{}{
-	"1": struct{}{},
-	"2": struct{}{},
+type cli struct {
+	current        m.Peer
+	all            map[m.Peer]struct{}
+	ch             <-chan map[m.Peer]struct{}
+	deleteThisPeer func() error
+}
+
+func (c *cli) RunForward() {
+
+	go func() {
+		for {
+			select {
+			case newAll, ok := <-c.ch:
+				if !ok {
+					return
+				}
+				c.all = newAll
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			in, err := c.current.GrpcStream.Recv()
+			if err == io.EOF {
+				log.Println(fmt.Errorf("$Ошибка EOF при чтении, err:=%v", err))
+				c.deleteThisPeer()
+				break
+			} else if err != nil {
+				log.Println(fmt.Errorf("$Ошибка при чтении сооьбщения, err:=%v", err))
+				break
+			}
+
+			for p := range c.all {
+				if p == c.current {
+					continue
+				}
+				go func(p m.Peer) {
+					err := p.GrpcStream.Send(&pb.Res{
+						Ping: in.Pong,
+					})
+					if err == io.EOF {
+						log.Println(fmt.Errorf("$Ошибка EOF при писании, err:=%v", err))
+						return
+					}
+					if err != nil {
+						log.Println(fmt.Errorf("$Ошибка при чтении писании, err:=%v", err))
+					}
+				}(p)
+			}
+		}
+	}()
 }
 
 func (s *rpcServer) Streaming(stream pb.MyService_StreamingServer) error {
 
-	fmt.Println("делаем поинтер из стрима", unsafe.Pointer(&stream))
-	p1 := unsafe.Pointer(&stream)
-	fmt.Println("из поинтера получаем строку", p1)
-	p2 := int(uintptr(p1))
-	fmt.Println("uintptr", p2)
-	p3 := unsafe.Pointer(uintptr(p2))
-	st := (*pb.MyService_StreamingServer)(p3)
-	fmt.Println("из поинтера в стрим", st)
+	peer, err := s.getPeer(stream)
+	if err != nil {
+		return err
+	}
 
-	streamToPoint := unsafe.Pointer(&stream)
-	pointToInt := int(uintptr(streamToPoint))
-	intToPoint := unsafe.Pointer(uintptr(pointToInt))
-	pointToStream := (*pb.MyService_StreamingServer)(intToPoint)
-	fmt.Println("из поинтера в стрим", pointToStream)
+	ch, err := s.storage.SavePeer(*peer)
+	if err != nil {
+		return err
+	}
 
-	// var test unsafe.Pointer = unsafe.Pointer(&stream)
-
-	// fmt.Println("test", (*pb.MyService_StreamingServer)(test))
-	// fmt.Println("size stream", unsafe.Sizeof(stream))
-
-	//
-	// gob.Register(map[pb.MyService_StreamingServer]interface{}{})
-	gob.Register(map[pb.MyService_StreamingServer]interface{}{})
-	var buff bytes.Buffer
-
-	// var in map[pb.MyService_StreamingServer]interface{} = map[pb.MyService_StreamingServer]interface{}{stream:struct{}{}}
-	// var out map[pb.MyService_StreamingServer]interface{} = make(map[pb.MyService_StreamingServer]interface{})
-	var in pb.MyService_StreamingServer = stream
-	var out pb.MyService_StreamingServer
-	// // Кодирование значения
-	// var in map[grpc.ServerStream]interface{} = map[grpc.ServerStream]interface{} {
-	// 	stream: struct{}{},
-	// }
-	log.Println(out)
-	enc := gob.NewEncoder(&buff)
-	dec := gob.NewDecoder(&buff)
-	errEnc := enc.Encode(&in)
-	log.Println("errEnc:", errEnc)
-	errDec := dec.Decode(&out)
-	log.Println("errDec:", errDec)
-	log.Println(out)
-	// err := enc.Encode(in)
-	// log.Println(err)
-	// fmt.Printf("%X\n", buff.Bytes())
- 
-	// // Декодирование значения
-	// var out Test = Test{}
-	// dec := gob.NewDecoder(&buff)
-	// err = dec.Decode(&out)
-	// log.Println(err)
-	// fmt.Println(out)
-	return nil
-	//
+	deleteThisPeer := func() error {
+		return s.storage.DeletePeer(*peer)
+	}
+	newCli := cli{
+		current:        *peer,
+		all:            make(map[m.Peer]struct{}),
+		ch:             ch,
+		deleteThisPeer: deleteThisPeer,
+	}
 
 	s.logger.Println("клиент подключился", stream)
 
-	streams[stream] = struct{}{}
-	log.Println("состояние стримов после подключения:", streams)
-
-	for {
-		if len(streams) == 2 {
-			break
-		}
-		select {
-		case <- stream.Context().Done():
-			log.Println("клиент отключился", stream)
-			delete(streams, stream)
-			return nil
-		}
-	}
-
-	strms := make([]pb.MyService_StreamingServer, 0)
-
-	for k := range streams {
-		strms = append(strms, k)
-	}
-	
-	retCh := make(chan error)
-	errStr1 := make(chan pb.MyService_StreamingServer)
-	errStr2 := make(chan pb.MyService_StreamingServer)
-
-	go s.logic(errStr1, errStr1, retCh, strms[0], strms[1])
-	go s.logic(errStr2, errStr1, retCh, strms[1], strms[0])
-	
-	// тогда нужно передавать отключение для двух каналов
-
-	select{
-	case err:= <-retCh:
-		return err
-	case str := <-errStr1:
-		delete(streams, str)
-		log.Println("состояние стримов после удаления:", streams)
-		s.logger.Println("stream:", str)
-		return fmt.Errorf("%v", str)
-	case str := <-errStr2:
-		delete(streams, str)
-		log.Println("состояние стримов после удаления:", streams)
-		s.logger.Println("stream:", str)
-		return fmt.Errorf("%v", str)
-	}
-}
-
-func (s *rpcServer) logic(errStr1, errStr2 chan pb.MyService_StreamingServer, retCh chan error, stream1, stream2 pb.MyService_StreamingServer) error {
-	
-	timer := time.NewTicker(2 * time.Second)
-	defer timer.Stop()
+	newCli.RunForward()
 
 	for {
 		select {
-		case <-stream1.Context().Done():
+		case <-stream.Context().Done():
 			s.logger.Println("Клиент отключился, контекст завершен")
-			errStr1 <- stream1
-			// stream2.Context().Err()
-			// retCh <- nil
-			return nil
-		case <-stream2.Context().Done():
-			s.logger.Println("Клиент отключился, контекст завершен")
-			errStr2 <- stream2
-			// stream1.Context().Err()
-			// retCh <- nil
+			deleteThisPeer()
 			return nil
 		case <-s.runningCtx.Done():
 			s.logger.Println("Главный контекст завершен")
-			// retCh <- nil
+			deleteThisPeer()
 			return nil
-		case <-timer.C:
-
-			// in, err := stream1.Recv()
-			// if err == io.EOF {
-			// 	log.Println(fmt.Errorf("$Ошибка EOF при чтении, err:=%v", err))
-			// 	// retCh <- nil
-			// 	return nil
-			// } else if err != nil {
-			// 	s.logger.Println(fmt.Errorf("$Ошибка при чтении сооьбщения, err:=%v", err))
-			// }
-			
-			// err = stream2.Send(&pb.Res{
-			// 	Ping: in.Pong,
-			// })
-			// if err == io.EOF {
-			// 	log.Println(fmt.Errorf("$Ошибка EOF при писании, err:=%v", err))
-			// 	// retCh <- nil
-			// 	return nil
-			// }
-			// if err != nil {
-			// 	log.Println(fmt.Errorf("$Ошибка при чтении писании, err:=%v", err))
-			// }
 		}
 	}
 }
 
+func (r *rpcServer) getPeer(stream pb.MyService_StreamingServer) (*m.Peer, error) {
 
-// s.logger.Println("клиент подключился")
-
-// 	timer := time.NewTicker(2 * time.Second)
-// 	defer timer.Stop()
-
-// 	go func() {
-// 		for {
-// 			in, err := stream.Recv()
-// 			if err == io.EOF {
-// 				log.Println(fmt.Errorf("$Ошибка EOF при чтении, err:=%v", err))
-// 				break
-// 			} else if err != nil {
-// 				s.logger.Println(fmt.Errorf("$Ошибка при чтении сооьбщения, err:=%v", err))
-// 				break
-// 			}
-
-// 			s.logger.Println("Received Pong message:", in.Pong)
-// 		}
-// 	}()
-
-// 	for {
-// 		select {
-// 		case <-stream.Context().Done():
-// 			s.logger.Println("Клиент отключился, контекст завершен")
-// 			retCh <- nil
-// 			return nil
-// 		case <-s.runningCtx.Done():
-// 			s.logger.Println("Главный контекст завершен")
-// 			retCh <- nil
-// 			return nil
-// 		case <-timer.C:
-// 			err := stream.Send(&pb.Res{
-// 				Ping: true,
-// 			})
-// 			if err == io.EOF {
-// 				log.Println(fmt.Errorf("$Ошибка EOF при писании, err:=%v", err))
-// 				retCh <- nil
-// 				return nil
-// 			}
-// 			if err != nil {
-// 				log.Println(fmt.Errorf("$Ошибка при чтении писании, err:=%v", err))
-// 			}
-// 		}
-// 	}
-
-func (s *rpcServer) authStreamInterceptor(srv interface{}, srvStream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) (err error) {
-
-	log.Println("авторизация пройдена")
-
-	m, ok := metadata.FromIncomingContext(srvStream.Context())
+	md, ok := metadata.FromIncomingContext(stream.Context())
+	fmt.Println(md)
 	if !ok {
-		return fmt.Errorf("$Ожидались метаданные, err:=%v", err)
-	}
-	if len(m["authorization"]) != 1 {
-		return fmt.Errorf("$Ошибка при авторизации, err:=%v", err)
+		return nil, errors.New("Error with metadata")
 	}
 
-	_, ok = access[m["authorization"][0]]
+	peer, ok := peer.FromContext(stream.Context())
 	if !ok {
-		return fmt.Errorf("$Ошибка при авторизации, err:=%v", err)
+		return nil, errors.New("Error with peer")
 	}
-	return handler(srv, srvStream)
+	ip := peer.Addr.String()
+
+	i := m.IdChannel(md["idchannel"][0])
+	n := m.Name(md["name"][0])
+	a := md["allowednames"][0]
+	g := stream
+	if i == "" || len(i) < 8 {
+		return nil, errors.New("Invalid IdChannel, mast be not empty and len > 8")
+	} else if n == "" {
+		return nil, errors.New("Invalid Name, mast be not empty")
+	}
+ 
+	r.pgDb.Save(m.Connection{
+		IP:           ip,
+		Name:         n,
+		IdChannel:    i,
+		AllowedNames: a,
+		Time:         time.Now(),
+	})
+
+	return &m.Peer{
+		IdChannel:    i,
+		Name:         n,
+		AllowedNames: a,
+		GrpcStream:   g,
+	}, nil
 }
