@@ -76,18 +76,22 @@ func (c *rpcClient) init() {
 	c.errCh = make(chan error)
 }
 
-type RPCAuth struct {
-	PSK string
+type Cli struct {
+	IdChannel    string
+	Name         string
+	AllowedNames string
 }
 
-func (a *RPCAuth) GetRequestMetadata(ctx context.Context, in ...string) (map[string]string, error) {
+func (a *Cli) GetRequestMetadata(ctx context.Context, in ...string) (map[string]string, error) {
 
 	return map[string]string{
-		"authorization": a.PSK,
+		"IdChannel":    a.IdChannel,
+		"Name":         a.Name,
+		"AllowedNames": a.AllowedNames,
 	}, nil
 }
 
-func (a *RPCAuth) RequireTransportSecurity() bool {
+func (a *Cli) RequireTransportSecurity() bool {
 
 	return true
 }
@@ -99,8 +103,10 @@ func (c *rpcClient) connect() (err error) {
 		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
 			InsecureSkipVerify: true,
 		})),
-		grpc.WithPerRPCCredentials(&RPCAuth{
-			PSK: c.cnf.AuthToken,
+		grpc.WithPerRPCCredentials(&Cli{
+			IdChannel: c.cnf.IdChannel,
+			Name:         c.cnf.Name,
+			AllowedNames: c.cnf.AllowedNames,
 		}),
 		grpc.WithConnectParams(grpc.ConnectParams{
 			Backoff:           backoff.DefaultConfig,
@@ -182,7 +188,7 @@ func (c *rpcClient) startStream() {
 				return
 			}
 			if err != nil {
-				c.errCh<- fmt.Errorf("$Ошибка при чтении писании, err:=%v", err)
+				c.errCh <- fmt.Errorf("$Ошибка при чтении писании, err:=%v", err)
 			}
 		case <-ctx.Done():
 			c.logger.Println("Канал закрыт")
