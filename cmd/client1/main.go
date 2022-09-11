@@ -6,17 +6,18 @@ import (
 	m "streaming/pkg/models"
 )
 
-
 func main() {
 	client := c.New()
 	err := client.Run(
 		m.CnfClient{
-			Addr: "localhost:55001",
-			AuthToken: "1",
-			RequestTimeout: 15,
+			Addr:              "localhost:55001",
+			RequestTimeout:    15,
 			KeepaliveInterval: 600,
-			Reconnect: true,
-			ReconnectTimeout: 15,
+			Reconnect:         true,
+			ReconnectTimeout:  15,
+			IdChannel:         "1234567890",
+			Name:              "Name1",
+			AllowedNames:      "Name1, Name2",
 		},
 	)
 	if err != nil {
