@@ -17,7 +17,7 @@ func main() {
 			ReconnectTimeout:  15,
 			IdChannel:         "1234567890",
 			Name:              "Name1",
-			AllowedNames:      "Name1, Name2",
+			AllowedNames:      "Name1, Name2, Name3",
 		},
 	)
 	if err != nil {

@@ -208,9 +208,7 @@ func (c *cli) RunForward() {
 					continue
 				}
 				go func(p m.Peer) {
-					err := p.GrpcStream.Send(&pb.Res{
-						Ping: in.Pong,
-					})
+					err := p.GrpcStream.Send(in)
 					if err == io.EOF {
 						log.Println(fmt.Errorf("$Ошибка EOF при писании, err:=%v", err))
 						return

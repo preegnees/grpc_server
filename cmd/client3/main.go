@@ -17,7 +17,7 @@ func main() {
 			Reconnect: true,
 			ReconnectTimeout: 15,
 			IdChannel:         "1234567890",
-			Name:              "Name2",
+			Name:              "Name3",
 			AllowedNames:      "Name1, Name2, Name3",
 		},
 	)

@@ -173,15 +173,15 @@ func (c *rpcClient) startStream() {
 				break
 			}
 
-			c.logger.Println("Received Ping message:", in.Ping)
+			c.logger.Println("Received Ping message:", in.M)
 		}
 	}()
 
 	for {
 		select {
 		case <-timer.C:
-			err := stream.Send(&pb.Req{
-				Pong: true,
+			err := stream.Send(&pb.Message{
+				M: true,
 			})
 			if err == io.EOF {
 				log.Println(fmt.Errorf("$Ошибка EOF при писании, err:=%v", err))

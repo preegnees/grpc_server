@@ -5,13 +5,9 @@ package service;
 option go_package = "./";
 
 service MyService {
-  rpc Streaming(stream Req) returns (stream Res);
+  rpc Streaming(stream Message) returns (stream Message);
 }
 
-message Req {
-  bool pong = 1;
-}
-
-message Res {
-  bool ping = 1;
+message Message {
+  bool M = 1;
 }

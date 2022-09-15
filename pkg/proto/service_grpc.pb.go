@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.2.0
 // - protoc             v3.21.5
-// source: cmd/proto/service.proto
+// source: pkg/proto/service.proto
 
 package __
 
@@ -43,8 +43,8 @@ func (c *myServiceClient) Streaming(ctx context.Context, opts ...grpc.CallOption
 }
 
 type MyService_StreamingClient interface {
-	Send(*Req) error
-	Recv() (*Res, error)
+	Send(*Message) error
+	Recv() (*Message, error)
 	grpc.ClientStream
 }
 
@@ -52,12 +52,12 @@ type myServiceStreamingClient struct {
 	grpc.ClientStream
 }
 
-func (x *myServiceStreamingClient) Send(m *Req) error {
+func (x *myServiceStreamingClient) Send(m *Message) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *myServiceStreamingClient) Recv() (*Res, error) {
-	m := new(Res)
+func (x *myServiceStreamingClient) Recv() (*Message, error) {
+	m := new(Message)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -97,8 +97,8 @@ func _MyService_Streaming_Handler(srv interface{}, stream grpc.ServerStream) err
 }
 
 type MyService_StreamingServer interface {
-	Send(*Res) error
-	Recv() (*Req, error)
+	Send(*Message) error
+	Recv() (*Message, error)
 	grpc.ServerStream
 }
 
@@ -106,12 +106,12 @@ type myServiceStreamingServer struct {
 	grpc.ServerStream
 }
 
-func (x *myServiceStreamingServer) Send(m *Res) error {
+func (x *myServiceStreamingServer) Send(m *Message) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *myServiceStreamingServer) Recv() (*Req, error) {
-	m := new(Req)
+func (x *myServiceStreamingServer) Recv() (*Message, error) {
+	m := new(Message)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -133,5 +133,5 @@ var MyService_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "cmd/proto/service.proto",
+	Metadata: "pkg/proto/service.proto",
 }
