@@ -28,7 +28,7 @@ type storage struct {
 	mx      sync.Mutex
 }
 
-// NewStorage. Функция получения хранилища
+// NewStorage. Получение хранилища
 func NewStorage() m.IStreamStorage {
 	
 	strg := make(map[m.IdChannel](map[m.Peer]m.Token))
@@ -39,7 +39,7 @@ func NewStorage() m.IStreamStorage {
 	}
 }
 
-// SavePeer. Сохранение пира при подключении
+// SavePeer. Сохранение пира и рассылка всем клиентам обновленной мапы с пирами
 func (s *storage) SavePeer(peer m.Peer) (<-chan map[m.Peer]struct{}, error) {
 
 	s.mx.Lock()
@@ -82,7 +82,7 @@ func (s *storage) SavePeer(peer m.Peer) (<-chan map[m.Peer]struct{}, error) {
 	
 	// Создаение токена, который будет связывать хранилище с клиентами и их каналами
 	token := m.Token(fmt.Sprintf("%d",rand.Int() + int(time.Now().UnixNano()) + rand.Int()))
-	// Сохранение токена и канала в хронилище каналов
+	// Сохранение токена и канала в хранилище каналов
 	s.chans[token] = ch
 	// Сохранение пира и токена
 	peers[peer] = token
@@ -110,7 +110,7 @@ func (s *storage) DeletePeer(peer m.Peer) error {
 	// Получение токена, который свзан с данным пиром
 	token, ok := peers[peer]
 	if !ok {
-		return ErrInvalidPeerWhenRemove // нужны ли тут вообще ошибки???
+		return ErrInvalidPeerWhenRemove
 	}
 
 	// Пытаемся достать канал, который связан с токеном, закрываем его и удаляем
@@ -136,11 +136,8 @@ func (s *storage) DeletePeer(peer m.Peer) error {
 // sendPeers. Вызывается каждый раз, когда происходят изменения в храненилищах
 func (s *storage) sendPeers(idCh m.IdChannel) {
 
-	// Пытаемся получить все пиры по idCh, если таких нет, то выходм (их может не быть???)
-	peers, ok := s.streams[idCh]
-	if !ok {
-		return
-	}
+	// Пытаемся получить все пиры по idCh 
+	peers := s.streams[idCh]
 
 	// Тут происходит создание двух мап, для хранения раздельно пиров и каналов этих пиров
 	ps := make(map[m.Peer]struct{})                    
@@ -157,11 +154,6 @@ func (s *storage) sendPeers(idCh m.IdChannel) {
 	go func() {
 		for ch := range chs {
 			go func(ch chan<- map[m.Peer]struct{}) {
-				defer func() {
-					if err := recover(); err != nil {
-						fmt.Println("канал почему то закрыт, err:=", err)
-					}
-				}()
 				ch <- ps
 			}(ch)
 		}
