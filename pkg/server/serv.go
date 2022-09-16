@@ -24,7 +24,7 @@ import (
 )
 
 type rpcServer struct {
-	pb.MyServiceServer
+	pb.StreamingServiceServer
 
 	stopCh        chan struct{}
 	restartCh     chan struct{}
@@ -72,6 +72,10 @@ func (s *rpcServer) Run(cnf m.CnfServer) error {
 	}
 }
 
+func (s *rpcServer) Stop() {
+	s.gracefulStop()
+}
+
 func (s *rpcServer) init() {
 
 	s.running = false
@@ -96,7 +100,7 @@ func (s *rpcServer) start() {
 			grpc.Creds(creds),
 		)
 
-		pb.RegisterMyServiceServer(s.grpcServer, s)
+		pb.RegisterStreamingServiceServer(s.grpcServer, s)
 
 		go func() {
 			listener, err := net.Listen("tcp", s.cnf.Addr)
@@ -209,20 +213,21 @@ func (c *cli) RunForward() {
 	}()
 }
 
-func (s *rpcServer) Streaming(stream pb.MyService_StreamingServer) error {
+func (s *rpcServer) Streaming(stream pb.StreamingService_StreamingServer) error {
 
 	peer, err := s.getPeer(stream)
 	if err != nil {
 		return err
 	}
 
-	ch, err := s.storage.SavePeer(*peer)
+	ch, code, err := s.storage.SavePeer(*peer)
 	if err != nil {
-		return err
+		return fmt.Errorf("%d", code)
 	}
 
 	deleteThisPeer := func() error {
-		return s.storage.DeletePeer(*peer)
+		_, err := s.storage.DeletePeer(*peer)
+		return err
 	}
 	newCli := cli{
 		current:        *peer,
@@ -249,7 +254,7 @@ func (s *rpcServer) Streaming(stream pb.MyService_StreamingServer) error {
 	}
 }
 
-func (r *rpcServer) getPeer(stream pb.MyService_StreamingServer) (*m.Peer, error) {
+func (r *rpcServer) getPeer(stream pb.StreamingService_StreamingServer) (*m.Peer, error) {
 
 	md, ok := metadata.FromIncomingContext(stream.Context())
 	fmt.Println(md)
@@ -262,6 +267,10 @@ func (r *rpcServer) getPeer(stream pb.MyService_StreamingServer) (*m.Peer, error
 		return nil, errors.New("Error with peer")
 	}
 	ip := peer.Addr.String()
+	
+	if  len(md["idchannel"]) != 1 || len(md["name"]) != 1 || len(md["allowednames"]) != 1 {
+		return nil, fmt.Errorf("$No metadata")
+	} 
 
 	i := m.IdChannel(md["idchannel"][0])
 	n := m.Name(md["name"][0])
