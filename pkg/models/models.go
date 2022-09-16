@@ -12,6 +12,7 @@ type CnfServer struct {
 	ShutdownTimeout int
 	CertPem         string
 	KeyPem          string
+	Debig           bool
 }
 
 // CnfClient. Конфигурация для клиента
