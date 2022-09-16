@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 
+	logrus "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/peer"
 
 	st "streaming/pkg/database/storage"
@@ -34,9 +35,10 @@ type rpcServer struct {
 	runningCancel context.CancelFunc
 	running       bool
 	grpcServer    *grpc.Server
-	logger        *log.Logger
+	logger        *logrus.Logger
 	cnf           m.CnfServer
 	storage       m.IStreamStorage
+	isDebug       bool
 }
 
 var _ m.IServ = (*rpcServer)(nil)
@@ -266,10 +268,10 @@ func (r *rpcServer) getPeer(stream pb.StreamingService_StreamingServer) (*m.Peer
 		return nil, errors.New("Error with peer")
 	}
 	ip := peer.Addr.String()
-	
-	if  len(md["idchannel"]) != 1 || len(md["name"]) != 1 || len(md["allowednames"]) != 1 {
+
+	if len(md["idchannel"]) != 1 || len(md["name"]) != 1 || len(md["allowednames"]) != 1 {
 		return nil, fmt.Errorf("$No metadata")
-	} 
+	}
 
 	i := m.IdChannel(md["idchannel"][0])
 	n := m.Name(md["name"][0])
@@ -280,7 +282,6 @@ func (r *rpcServer) getPeer(stream pb.StreamingService_StreamingServer) (*m.Peer
 	} else if n == "" {
 		return nil, fmt.Errorf("Invalid Name, mast be not empty, ip:%s", ip)
 	}
- 
 
 	return &m.Peer{
 		IdChannel:    i,
