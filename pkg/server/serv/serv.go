@@ -18,7 +18,6 @@ import (
 
 	"google.golang.org/grpc/peer"
 
-	pg "streaming/pkg/database/postgress"
 	st "streaming/pkg/database/storage"
 	m "streaming/pkg/models"
 	pb "streaming/pkg/proto"
@@ -38,7 +37,6 @@ type rpcServer struct {
 	logger        *log.Logger
 	cnf           m.CnfServer
 	storage       m.IStreamStorage
-	pgDb          m.IPostgres
 }
 
 var _ m.IServ = (*rpcServer)(nil)
@@ -83,17 +81,6 @@ func (s *rpcServer) init() {
 	s.doneCh = make(chan struct{})
 	s.errCh = make(chan error)
 	s.storage = st.NewStorage()
-	s.pgDb = pg.New(
-		m.ConfPostgres{
-			TestMod:  true,
-			User:     "postgres",
-			Host:     "localhost",
-			Password: "1234",
-			Port:     "5432",
-			Database: "mydb",
-			Sslmode:  "disable",
-		},
-	)
 }
 
 func (s *rpcServer) start() {
@@ -281,18 +268,11 @@ func (r *rpcServer) getPeer(stream pb.MyService_StreamingServer) (*m.Peer, error
 	a := md["allowednames"][0]
 	g := stream
 	if i == "" || len(i) < 8 {
-		return nil, errors.New("Invalid IdChannel, mast be not empty and len > 8")
+		return nil, fmt.Errorf("Invalid IdChannel, mast be not empty and len > 8, ip:%s", ip)
 	} else if n == "" {
-		return nil, errors.New("Invalid Name, mast be not empty")
+		return nil, fmt.Errorf("Invalid Name, mast be not empty, ip:%s", ip)
 	}
  
-	r.pgDb.Save(m.Connection{
-		IP:           ip,
-		Name:         n,
-		IdChannel:    i,
-		AllowedNames: a,
-		Time:         time.Now(),
-	})
 
 	return &m.Peer{
 		IdChannel:    i,

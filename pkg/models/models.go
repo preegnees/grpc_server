@@ -9,7 +9,6 @@ import (
 // CnfServer. Конифгурация для сервера
 type CnfServer struct {
 	Addr            string
-	Restart         bool
 	ShutdownTimeout int
 	CertPem         string
 	KeyPem          string
