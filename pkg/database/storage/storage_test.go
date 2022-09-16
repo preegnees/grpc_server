@@ -43,7 +43,7 @@ func TestSavePeersAndGetPeers(t *testing.T) {
 	chs := make([]<-chan map[m.Peer]struct{}, 0)
 
 	for _, d := range data {
-		ch, _ := stor.SavePeer(d.Peer)
+		ch, _,  _ := stor.SavePeer(d.Peer)
 		chs = append(chs, ch)
 	}
 	

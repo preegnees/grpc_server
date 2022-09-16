@@ -3,10 +3,10 @@ package storage
 import (
 	"fmt"
 	"math/rand"
+	"sort"
 	"strings"
 	"sync"
 	"time"
-	"sort"
 
 	m "streaming/pkg/models"
 )
@@ -14,6 +14,11 @@ import (
 var ErrInvalidIdChannelWhenRemove error = fmt.Errorf("Ошибка при удалении пира, такого канала не существует")
 var ErrInvalidPeerWhenRemove error = fmt.Errorf("Ошибка при удалении пира, такого пира не существует")
 var ErrInvalidAllowedNamesWhenSave error = fmt.Errorf("Ошибка при сохранении пира, allowedNames подключающегося клиентя не соответсвует allowedNames клиента в базе")
+
+const ErrInvalidAllowedNamesWhenSaveCode = 2
+const ErrInvalidIdChannelWhenRemoveCode = 3
+const ErrInvalidPeerWhenRemoveCode = 4
+const Ok = 0
 
 // Проверка на соответсвии интерфейсу
 var _ m.IStreamStorage = (*storage)(nil)
@@ -23,32 +28,50 @@ type storage struct {
 	// Хранение Id каналов и их пиров, которые состоят их пиров и токенов
 	streams map[m.IdChannel](map[m.Peer]m.Token)
 	// Хранение токенов и каналов
-	chans   map[m.Token](chan map[m.Peer]struct{})
+	chans map[m.Token](chan map[m.Peer]struct{})
 	// Мьютекс для сохранения и удаления
-	mx      sync.Mutex
+	mx sync.Mutex
 }
 
 // NewStorage. Получение хранилища
 func NewStorage() m.IStreamStorage {
-	
+
 	strg := make(map[m.IdChannel](map[m.Peer]m.Token))
 	chs := make(map[m.Token](chan map[m.Peer]struct{}))
 	return &storage{
 		streams: strg,
-		chans: chs,
+		chans:   chs,
 	}
 }
 
 // SavePeer. Сохранение пира и рассылка всем клиентам обновленной мапы с пирами
-func (s *storage) SavePeer(peer m.Peer) (<-chan map[m.Peer]struct{}, error) {
+func (s *storage) SavePeer(peer m.Peer) (<-chan map[m.Peer]struct{}, int, error) {
 
 	s.mx.Lock()
 	defer s.mx.Unlock()
 
-	// Получаем все пиры, связанные с каналом того пира, который хочет подключится. Если его нет, то создаем 
+	// Получаем все пиры, связанные с каналом того пира, который хочет подключится. Если его нет, то создаем
 	peers, ok := s.streams[peer.IdChannel]
 	if !ok {
 		peers = make(map[m.Peer]m.Token)
+	}
+
+	// Проверка на тот случай если, новый клиент будет иметь набор друзей, отличный от того, что есть уже в базе
+	if ok {
+		for p := range peers {
+			allowedPeersInDbSplited := strings.Split(strings.ReplaceAll(p.AllowedNames, " ", ""), ",")
+			sort.Strings(allowedPeersInDbSplited)
+			allowedPeersInDb := strings.Join(allowedPeersInDbSplited, "")
+
+			allowedPeersInThisSplited := strings.Split(strings.ReplaceAll(peer.AllowedNames, " ", ""), ",")
+			sort.Strings(allowedPeersInThisSplited)
+			allowedPeersInThis := strings.Join(allowedPeersInThisSplited, "")
+
+			if allowedPeersInDb != allowedPeersInThis {
+				return nil, ErrInvalidAllowedNamesWhenSaveCode, ErrInvalidAllowedNamesWhenSave
+			}
+			break
+		}
 	}
 
 	// Проверяем на тот случай если в хранилище осталось предыдущее подключение, если оно есть, то удаляем
@@ -59,29 +82,11 @@ func (s *storage) SavePeer(peer m.Peer) (<-chan map[m.Peer]struct{}, error) {
 		}
 	}
 
-	// Проверка на тот случай если, новый клиент будет иметь набор друзей, отличный от того, что есть уже в базе
-	if ok {
-		for p := range peers {
-			allowedPeersInDbSplited := strings.Split(p.AllowedNames,",")
-			sort.Strings(allowedPeersInDbSplited)
-			allowedPeersInDb := strings.Join(allowedPeersInDbSplited, "")
-
-			allowedPeersInThisSplited := strings.Split(peer.AllowedNames, ",")
-			sort.Strings(allowedPeersInThisSplited)
-			allowedPeersInThis := strings.Join(allowedPeersInThisSplited, "")
-			
-			if allowedPeersInDb != allowedPeersInThis {
-				return nil, ErrInvalidAllowedNamesWhenSave
-			}
-			break
-		}
-	}
-
 	// Создание канала
 	ch := make((chan map[m.Peer]struct{}))
-	
+
 	// Создаение токена, который будет связывать хранилище с клиентами и их каналами
-	token := m.Token(fmt.Sprintf("%d",rand.Int() + int(time.Now().UnixNano()) + rand.Int()))
+	token := m.Token(fmt.Sprintf("%d", rand.Int()+int(time.Now().UnixNano())+rand.Int()))
 	// Сохранение токена и канала в хранилище каналов
 	s.chans[token] = ch
 	// Сохранение пира и токена
@@ -92,11 +97,11 @@ func (s *storage) SavePeer(peer m.Peer) (<-chan map[m.Peer]struct{}, error) {
 	// Рассылка всем, так как подключился новый клиент
 	go s.sendPeers(peer.IdChannel)
 
-	return ch, nil
+	return ch, Ok, nil
 }
 
 // DeletePeer. Удаление пира при отключении
-func (s *storage) DeletePeer(peer m.Peer) error {
+func (s *storage) DeletePeer(peer m.Peer) (int, error) {
 
 	s.mx.Lock()
 	defer s.mx.Unlock()
@@ -104,13 +109,13 @@ func (s *storage) DeletePeer(peer m.Peer) error {
 	// Получение пиров, который связаны с данном каналом
 	peers, ok := s.streams[peer.IdChannel]
 	if !ok {
-		return ErrInvalidIdChannelWhenRemove
+		return ErrInvalidIdChannelWhenRemoveCode, ErrInvalidIdChannelWhenRemove
 	}
 
 	// Получение токена, который свзан с данным пиром
 	token, ok := peers[peer]
 	if !ok {
-		return ErrInvalidPeerWhenRemove
+		return ErrInvalidPeerWhenRemoveCode, ErrInvalidPeerWhenRemove
 	}
 
 	// Пытаемся достать канал, который связан с токеном, закрываем его и удаляем
@@ -120,7 +125,7 @@ func (s *storage) DeletePeer(peer m.Peer) error {
 		ch = nil
 		delete(s.chans, token)
 	}
-	
+
 	// Удаление пира
 	delete(peers, peer)
 
@@ -130,17 +135,17 @@ func (s *storage) DeletePeer(peer m.Peer) error {
 	// Рассылка всем об удалении
 	go s.sendPeers(peer.IdChannel)
 
-	return nil
+	return Ok, nil
 }
 
 // sendPeers. Вызывается каждый раз, когда происходят изменения в храненилищах
 func (s *storage) sendPeers(idCh m.IdChannel) {
 
-	// Пытаемся получить все пиры по idCh 
+	// Пытаемся получить все пиры по idCh
 	peers := s.streams[idCh]
 
 	// Тут происходит создание двух мап, для хранения раздельно пиров и каналов этих пиров
-	ps := make(map[m.Peer]struct{})                    
+	ps := make(map[m.Peer]struct{})
 	chs := make(map[chan map[m.Peer]struct{}]struct{})
 	for p, t := range peers {
 		ps[p] = struct{}{}
