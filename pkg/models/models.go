@@ -1,8 +1,6 @@
 package models
 
 import (
-	"time"
-
 	pb "streaming/pkg/proto"
 )
 
@@ -11,7 +9,6 @@ import (
 // CnfServer. Конифгурация для сервера
 type CnfServer struct {
 	Addr            string
-	AuthToken       string
 	Restart         bool
 	ShutdownTimeout int
 	CertPem         string
@@ -48,7 +45,7 @@ type IdChannel string
 // Name - имя клиента
 type Name string
 
-// Token - токен для связки в хранилище каналы и пиры
+// Token - токен, который связывает каналы и пиры в хранилище
 type Token string
 
 /*
@@ -66,38 +63,11 @@ type Peer struct {
 }
 
 /*
-IMemStorage. Интерфейс для взаимодействия с базой данных.
-SavePeer: сохранение пира;
+IMemStorage. Интерфейс для взаимодействия с базой данных, которая хронит стримы.
+SavePeer: сохранение пира при подключении;
 DeletePeer: удаление пира при отключении;
 */
 type IStreamStorage interface {
 	SavePeer(peer Peer) (<-chan map[Peer]struct{}, error)
 	DeletePeer(peer Peer) error
-}
-
-// ---> Postgress
-
-type ConfPostgres struct {
-	TestMod  bool
-	User     string
-	Host     string
-	Password string
-	Port     string
-	Database string
-	Sslmode  string
-}
-
-type Connection struct {
-	ID           uint `gorm:"primaryKey"`
-	IP           string
-	Name         Name
-	IdChannel    IdChannel
-	AllowedNames string
-	Time         time.Time
-}
-
-type IPostgres interface {
-	Save(Connection) error
-	GetConnsUseName(Name) ([]Connection, error)
-	GetConnsUseIdChannel(IdChannel) ([]Connection, error)
 }
