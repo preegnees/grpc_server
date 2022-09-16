@@ -171,8 +171,13 @@ func (c *rpcClient) startStream() {
 				cancel()
 				break
 			}
+			if in.Err != "" {
+				if in.Err == "2" {
+					log.Println("ОШибка получена от клиента:", in.ErrCli)
+				}
+			}
 			if err != nil {
-				log.Println(fmt.Errorf("$Ошибка при чтении сооьбщения, err:=%v", err))
+				log.Println(fmt.Errorf("$Ошибка при чтении сооьбщения, err:=%v", err.Error()))
 				break
 			}
 
@@ -185,6 +190,8 @@ func (c *rpcClient) startStream() {
 		case <-timer.C:
 			err := stream.Send(&pb.Message{
 				Bs: []byte(fmt.Sprintf("hello world, this is %s", c.cnf.Name)),
+				Err: "",
+				ErrCli: "",
 			})
 			if err == io.EOF {
 				log.Println(fmt.Errorf("$Ошибка EOF при писании, err:=%v", err))
