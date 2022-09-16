@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	logrus "github.com/sirupsen/logrus"
+
 	m "streaming/pkg/models"
 )
 
@@ -26,16 +28,37 @@ type storage struct {
 	chans map[m.Token](chan map[m.Peer]struct{})
 	// Мьютекс для сохранения и удаления
 	mx sync.Mutex
+	// Логгер
+	log *logrus.Logger
+}
+
+func toString(peer m.Peer) string {
+	return fmt.Sprintf(
+		"Name=%s, IdChannel=%s, AllowedNames=%s, GrpcStream=%v", 
+		peer.Name, peer.IdChannel, peer.AllowedNames, peer.GrpcStream,
+	)
 }
 
 // NewStorage. Получение хранилища
-func NewStorage() m.IStreamStorage {
+func NewStorage(logger *logrus.Logger) m.IStreamStorage {
+
+	// if Environment == "production" {
+	// 	log.SetFormatter(&log.JSONFormatter{})
+	// } else {
+	// 	// The TextFormatter is default, you don't actually have to do this.
+	// 	log.SetFormatter(&log.TextFormatter{})
+	// }
+	// log.SetLevel(log.DebugLevel)
+	// log.New().Out = os.Stdout
+	// log.SetFormatter(&log.TextFormatter{})
+	// log.Debug("debug")
 
 	strg := make(map[m.IdChannel](map[m.Peer]m.Token))
 	chs := make(map[m.Token](chan map[m.Peer]struct{}))
 	return &storage{
 		streams: strg,
 		chans:   chs,
+		log: logger,
 	}
 }
 
@@ -44,11 +67,13 @@ func (s *storage) SavePeer(peer m.Peer) (<-chan map[m.Peer]struct{}, error) {
 
 	s.mx.Lock()
 	defer s.mx.Unlock()
+	s.log.Debugf("SavePeer. Вызвана функция сохраненния, пир(%s)\n", toString(peer))
 
 	// Получаем все пиры, связанные с каналом того пира, который хочет подключится. Если его нет, то создаем
 	peers, ok := s.streams[peer.IdChannel]
 	if !ok {
 		peers = make(map[m.Peer]m.Token)
+		s.log.Debugf("SavePeer. Пир (%s) не был найден в стримах\n", toString(peer))
 	}
 
 	// Проверка на тот случай если, новый клиент будет иметь набор друзей, отличный от того, что есть уже в базе
@@ -63,6 +88,7 @@ func (s *storage) SavePeer(peer m.Peer) (<-chan map[m.Peer]struct{}, error) {
 			allowedPeersInThis := strings.Join(allowedPeersInThisSplited, "")
 
 			if allowedPeersInDb != allowedPeersInThis {
+				s.log.Warnf("SavePeer. AllowedPeers не совпало у пира (%s)", toString(peer))
 				return nil, ErrInvalidAllowedNamesWhenSave
 			}
 			break
@@ -72,8 +98,10 @@ func (s *storage) SavePeer(peer m.Peer) (<-chan map[m.Peer]struct{}, error) {
 	// Проверяем на тот случай если в хранилище осталось предыдущее подключение, если оно есть, то удаляем
 	for p, t := range peers {
 		if p.Name == peer.Name {
+			s.log.Warnf("SavePeer. В хранилище осталось подключение с имененм:%s\n", p.Name)
 			delete(s.chans, t)
 			delete(peers, p)
+			go s.sendPeers(peer.IdChannel)
 		}
 	}
 
@@ -88,6 +116,7 @@ func (s *storage) SavePeer(peer m.Peer) (<-chan map[m.Peer]struct{}, error) {
 	peers[peer] = token
 	// Сохранение обратно всего в общее хранилище
 	s.streams[peer.IdChannel] = peers
+	s.log.Debugf("SavePeer. Подключение пира (%s) было успешно сохранено", toString(peer))
 
 	// Рассылка всем, так как подключился новый клиент
 	go s.sendPeers(peer.IdChannel)
@@ -100,16 +129,19 @@ func (s *storage) DeletePeer(peer m.Peer) error {
 
 	s.mx.Lock()
 	defer s.mx.Unlock()
+	s.log.Debugf("DeletePeer. Пир (%s) удален\n", toString(peer))
 
 	// Получение пиров, который связаны с данном каналом
 	peers, ok := s.streams[peer.IdChannel]
 	if !ok {
+		s.log.Errorf("DeletePeer. Ошибка:%v\n", ErrInvalidIdChannelWhenRemove)
 		return ErrInvalidIdChannelWhenRemove
 	}
 
 	// Получение токена, который свзан с данным пиром
 	token, ok := peers[peer]
 	if !ok {
+		s.log.Errorf("DeletePeer. Ошибка:%v\n", ErrInvalidPeerWhenRemove)
 		return ErrInvalidPeerWhenRemove
 	}
 
@@ -119,10 +151,12 @@ func (s *storage) DeletePeer(peer m.Peer) error {
 		close(ch)
 		ch = nil
 		delete(s.chans, token)
+		s.log.Debugf("DeletePeer. Успешно удален канал по токену:%s\n", token)
 	}
 
 	// Удаление пира
 	delete(peers, peer)
+	s.log.Debug("DeletePeer. Успешно удален пир")
 
 	// Обратное сохранение пиров под idch
 	s.streams[peer.IdChannel] = peers
@@ -135,6 +169,7 @@ func (s *storage) DeletePeer(peer m.Peer) error {
 
 // sendPeers. Вызывается каждый раз, когда происходят изменения в храненилищах
 func (s *storage) sendPeers(idCh m.IdChannel) {
+	s.log.Debugf("sendPeers. Произовдится рассылка по idChannel:%s\n", idCh)
 
 	// Пытаемся получить все пиры по idCh
 	peers := s.streams[idCh]

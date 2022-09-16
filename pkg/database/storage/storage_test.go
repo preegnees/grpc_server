@@ -10,6 +10,7 @@ import (
 	m "streaming/pkg/models"
 
 	"go.uber.org/goleak"
+	logrus "github.com/sirupsen/logrus"
 )
 
 var stor m.IStreamStorage
@@ -17,7 +18,12 @@ var stor m.IStreamStorage
 func TestMain(m *testing.M) {
 
 	fmt.Println("Инициализация")
-	stor = NewStorage()
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+	log.Out = os.Stdout
+	log.SetFormatter(&logrus.TextFormatter{})
+	log.Debug("debug")
+	stor = NewStorage(log)
 	fmt.Println("Сторадж инициализирван:", stor)
 	exitEval := m.Run()
 	fmt.Println("Остановка")
