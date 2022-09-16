@@ -4,10 +4,10 @@ package service;
 
 option go_package = "./";
 
-service MyService {
+service StreamingService {
   rpc Streaming(stream Message) returns (stream Message);
 }
 
 message Message {
-  bool M = 1;
+  bytes Bs = 1;
 }

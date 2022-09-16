@@ -18,45 +18,45 @@ import (
 // Requires gRPC-Go v1.32.0 or later.
 const _ = grpc.SupportPackageIsVersion7
 
-// MyServiceClient is the client API for MyService service.
+// StreamingServiceClient is the client API for StreamingService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type MyServiceClient interface {
-	Streaming(ctx context.Context, opts ...grpc.CallOption) (MyService_StreamingClient, error)
+type StreamingServiceClient interface {
+	Streaming(ctx context.Context, opts ...grpc.CallOption) (StreamingService_StreamingClient, error)
 }
 
-type myServiceClient struct {
+type streamingServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewMyServiceClient(cc grpc.ClientConnInterface) MyServiceClient {
-	return &myServiceClient{cc}
+func NewStreamingServiceClient(cc grpc.ClientConnInterface) StreamingServiceClient {
+	return &streamingServiceClient{cc}
 }
 
-func (c *myServiceClient) Streaming(ctx context.Context, opts ...grpc.CallOption) (MyService_StreamingClient, error) {
-	stream, err := c.cc.NewStream(ctx, &MyService_ServiceDesc.Streams[0], "/service.MyService/Streaming", opts...)
+func (c *streamingServiceClient) Streaming(ctx context.Context, opts ...grpc.CallOption) (StreamingService_StreamingClient, error) {
+	stream, err := c.cc.NewStream(ctx, &StreamingService_ServiceDesc.Streams[0], "/service.StreamingService/Streaming", opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &myServiceStreamingClient{stream}
+	x := &streamingServiceStreamingClient{stream}
 	return x, nil
 }
 
-type MyService_StreamingClient interface {
+type StreamingService_StreamingClient interface {
 	Send(*Message) error
 	Recv() (*Message, error)
 	grpc.ClientStream
 }
 
-type myServiceStreamingClient struct {
+type streamingServiceStreamingClient struct {
 	grpc.ClientStream
 }
 
-func (x *myServiceStreamingClient) Send(m *Message) error {
+func (x *streamingServiceStreamingClient) Send(m *Message) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *myServiceStreamingClient) Recv() (*Message, error) {
+func (x *streamingServiceStreamingClient) Recv() (*Message, error) {
 	m := new(Message)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
@@ -64,53 +64,53 @@ func (x *myServiceStreamingClient) Recv() (*Message, error) {
 	return m, nil
 }
 
-// MyServiceServer is the server API for MyService service.
-// All implementations must embed UnimplementedMyServiceServer
+// StreamingServiceServer is the server API for StreamingService service.
+// All implementations must embed UnimplementedStreamingServiceServer
 // for forward compatibility
-type MyServiceServer interface {
-	Streaming(MyService_StreamingServer) error
-	mustEmbedUnimplementedMyServiceServer()
+type StreamingServiceServer interface {
+	Streaming(StreamingService_StreamingServer) error
+	mustEmbedUnimplementedStreamingServiceServer()
 }
 
-// UnimplementedMyServiceServer must be embedded to have forward compatible implementations.
-type UnimplementedMyServiceServer struct {
+// UnimplementedStreamingServiceServer must be embedded to have forward compatible implementations.
+type UnimplementedStreamingServiceServer struct {
 }
 
-func (UnimplementedMyServiceServer) Streaming(MyService_StreamingServer) error {
+func (UnimplementedStreamingServiceServer) Streaming(StreamingService_StreamingServer) error {
 	return status.Errorf(codes.Unimplemented, "method Streaming not implemented")
 }
-func (UnimplementedMyServiceServer) mustEmbedUnimplementedMyServiceServer() {}
+func (UnimplementedStreamingServiceServer) mustEmbedUnimplementedStreamingServiceServer() {}
 
-// UnsafeMyServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to MyServiceServer will
+// UnsafeStreamingServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to StreamingServiceServer will
 // result in compilation errors.
-type UnsafeMyServiceServer interface {
-	mustEmbedUnimplementedMyServiceServer()
+type UnsafeStreamingServiceServer interface {
+	mustEmbedUnimplementedStreamingServiceServer()
 }
 
-func RegisterMyServiceServer(s grpc.ServiceRegistrar, srv MyServiceServer) {
-	s.RegisterService(&MyService_ServiceDesc, srv)
+func RegisterStreamingServiceServer(s grpc.ServiceRegistrar, srv StreamingServiceServer) {
+	s.RegisterService(&StreamingService_ServiceDesc, srv)
 }
 
-func _MyService_Streaming_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(MyServiceServer).Streaming(&myServiceStreamingServer{stream})
+func _StreamingService_Streaming_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(StreamingServiceServer).Streaming(&streamingServiceStreamingServer{stream})
 }
 
-type MyService_StreamingServer interface {
+type StreamingService_StreamingServer interface {
 	Send(*Message) error
 	Recv() (*Message, error)
 	grpc.ServerStream
 }
 
-type myServiceStreamingServer struct {
+type streamingServiceStreamingServer struct {
 	grpc.ServerStream
 }
 
-func (x *myServiceStreamingServer) Send(m *Message) error {
+func (x *streamingServiceStreamingServer) Send(m *Message) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *myServiceStreamingServer) Recv() (*Message, error) {
+func (x *streamingServiceStreamingServer) Recv() (*Message, error) {
 	m := new(Message)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
@@ -118,17 +118,17 @@ func (x *myServiceStreamingServer) Recv() (*Message, error) {
 	return m, nil
 }
 
-// MyService_ServiceDesc is the grpc.ServiceDesc for MyService service.
+// StreamingService_ServiceDesc is the grpc.ServiceDesc for StreamingService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var MyService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "service.MyService",
-	HandlerType: (*MyServiceServer)(nil),
+var StreamingService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "service.StreamingService",
+	HandlerType: (*StreamingServiceServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Streaming",
-			Handler:       _MyService_Streaming_Handler,
+			Handler:       _StreamingService_Streaming_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},
