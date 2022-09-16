@@ -2,7 +2,7 @@ package main
 
 import (
 	"log"
-	c "streaming/pkg/client/cli"
+	c "streaming/pkg/client"
 	m "streaming/pkg/models"
 )
 

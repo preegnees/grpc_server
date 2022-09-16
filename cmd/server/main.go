@@ -4,7 +4,7 @@ import (
 	"log"
 
 	m "streaming/pkg/models"
-	s "streaming/pkg/server/serv"
+	s "streaming/pkg/server"
 )
 
 func main() {
