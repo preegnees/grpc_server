@@ -29,11 +29,13 @@ type CnfClient struct {
 // IServ. Интерфейс для сервера
 type IServ interface {
 	Run(CnfServer) error
+	Stop()
 }
 
 // ICli. Интерфейс для клиента
 type ICli interface {
 	Run(CnfClient) error
+	Stop()
 }
 
 // ---> MyMemStorage
@@ -58,7 +60,7 @@ type Peer struct {
 	IdChannel    IdChannel
 	Name         Name
 	AllowedNames string
-	GrpcStream   pb.MyService_StreamingServer
+	GrpcStream   pb.StreamingService_StreamingServer
 }
 
 /*
@@ -67,6 +69,6 @@ SavePeer: сохранение пира при подключении;
 DeletePeer: удаление пира при отключении;
 */
 type IStreamStorage interface {
-	SavePeer(peer Peer) (<-chan map[Peer]struct{}, error)
-	DeletePeer(peer Peer) error
+	SavePeer(peer Peer) (<-chan map[Peer]struct{}, int, error)
+	DeletePeer(peer Peer) (int, error)
 }
