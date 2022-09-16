@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -10,7 +11,6 @@ import (
 	"os/signal"
 	"time"
 
-	gops "github.com/google/gops/agent"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
@@ -20,8 +20,11 @@ import (
 	pb "streaming/pkg/proto"
 )
 
+var ErrListenGops = errors.New("$Ошибка при прослкшивании gops")
+var ErrConnectionToServer = errors.New("$Ошибка при подключении")
+
 type rpcClient struct {
-	pb.MyServiceClient
+	pb.StreamingServiceClient
 
 	connection *grpc.ClientConn
 	logger     *log.Logger
@@ -38,16 +41,12 @@ func New() m.ICli {
 
 func (c *rpcClient) Run(cnf m.CnfClient) error {
 
-	if err := gops.Listen(gops.Options{}); err != nil {
-		return fmt.Errorf("$Ошибка при прослкшивании gops, err:=%v", err)
-	}
-
 	c.cnf = cnf
 
 	c.init()
 	err := c.connect()
 	if err != nil {
-		return fmt.Errorf("$Ошибка при подключении, err:=%v", err)
+		return fmt.Errorf("%w, err:=%v", ErrConnectionToServer, err)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -68,6 +67,10 @@ func (c *rpcClient) Run(cnf m.CnfClient) error {
 		}
 		return fmt.Errorf("$Произошла ошибка во время работы, err:=%v, %v", err, ed)
 	}
+}
+
+func (c *rpcClient) Stop() {
+	c.disconnect()
 }
 
 func (c *rpcClient) init() {
@@ -104,7 +107,7 @@ func (c *rpcClient) connect() (err error) {
 			InsecureSkipVerify: true,
 		})),
 		grpc.WithPerRPCCredentials(&Cli{
-			IdChannel: c.cnf.IdChannel,
+			IdChannel:    c.cnf.IdChannel,
 			Name:         c.cnf.Name,
 			AllowedNames: c.cnf.AllowedNames,
 		}),
@@ -123,7 +126,7 @@ func (c *rpcClient) connect() (err error) {
 		return err
 	}
 
-	c.MyServiceClient = pb.NewMyServiceClient(c.connection)
+	c.StreamingServiceClient = pb.NewStreamingServiceClient(c.connection)
 
 	go func() {
 		for c.connection != nil {
@@ -173,7 +176,7 @@ func (c *rpcClient) startStream() {
 				break
 			}
 
-			c.logger.Println("Received Ping message:", in.M)
+			c.logger.Printf("Received Ping message: %s\n", in.Bs)
 		}
 	}()
 
@@ -181,7 +184,7 @@ func (c *rpcClient) startStream() {
 		select {
 		case <-timer.C:
 			err := stream.Send(&pb.Message{
-				M: true,
+				Bs: []byte(fmt.Sprintf("hello world, this is %s", c.cnf.Name)),
 			})
 			if err == io.EOF {
 				log.Println(fmt.Errorf("$Ошибка EOF при писании, err:=%v", err))
