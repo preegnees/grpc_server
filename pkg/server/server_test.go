@@ -59,6 +59,7 @@ func TestXxx(t *testing.T) {
 		}
 	}()
 
+	time.Sleep(1 * time.Second)
 
 	go func() {
 		err := cli2.Run(

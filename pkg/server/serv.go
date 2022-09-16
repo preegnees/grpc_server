@@ -220,14 +220,13 @@ func (s *rpcServer) Streaming(stream pb.StreamingService_StreamingServer) error 
 		return err
 	}
 
-	ch, code, err := s.storage.SavePeer(*peer)
+	ch, err := s.storage.SavePeer(*peer)
 	if err != nil {
-		return fmt.Errorf("%d", code)
+		return err
 	}
 
 	deleteThisPeer := func() error {
-		_, err := s.storage.DeletePeer(*peer)
-		return err
+		return s.storage.DeletePeer(*peer)
 	}
 	newCli := cli{
 		current:        *peer,

@@ -15,11 +15,6 @@ var ErrInvalidIdChannelWhenRemove error = fmt.Errorf("Ошибка при уда
 var ErrInvalidPeerWhenRemove error = fmt.Errorf("Ошибка при удалении пира, такого пира не существует")
 var ErrInvalidAllowedNamesWhenSave error = fmt.Errorf("Ошибка при сохранении пира, allowedNames подключающегося клиентя не соответсвует allowedNames клиента в базе")
 
-const ErrInvalidAllowedNamesWhenSaveCode = 2
-const ErrInvalidIdChannelWhenRemoveCode = 3
-const ErrInvalidPeerWhenRemoveCode = 4
-const Ok = 0
-
 // Проверка на соответсвии интерфейсу
 var _ m.IStreamStorage = (*storage)(nil)
 
@@ -45,7 +40,7 @@ func NewStorage() m.IStreamStorage {
 }
 
 // SavePeer. Сохранение пира и рассылка всем клиентам обновленной мапы с пирами
-func (s *storage) SavePeer(peer m.Peer) (<-chan map[m.Peer]struct{}, int, error) {
+func (s *storage) SavePeer(peer m.Peer) (<-chan map[m.Peer]struct{}, error) {
 
 	s.mx.Lock()
 	defer s.mx.Unlock()
@@ -68,7 +63,7 @@ func (s *storage) SavePeer(peer m.Peer) (<-chan map[m.Peer]struct{}, int, error)
 			allowedPeersInThis := strings.Join(allowedPeersInThisSplited, "")
 
 			if allowedPeersInDb != allowedPeersInThis {
-				return nil, ErrInvalidAllowedNamesWhenSaveCode, ErrInvalidAllowedNamesWhenSave
+				return nil, ErrInvalidAllowedNamesWhenSave
 			}
 			break
 		}
@@ -97,11 +92,11 @@ func (s *storage) SavePeer(peer m.Peer) (<-chan map[m.Peer]struct{}, int, error)
 	// Рассылка всем, так как подключился новый клиент
 	go s.sendPeers(peer.IdChannel)
 
-	return ch, Ok, nil
+	return ch, nil
 }
 
 // DeletePeer. Удаление пира при отключении
-func (s *storage) DeletePeer(peer m.Peer) (int, error) {
+func (s *storage) DeletePeer(peer m.Peer) error {
 
 	s.mx.Lock()
 	defer s.mx.Unlock()
@@ -109,13 +104,13 @@ func (s *storage) DeletePeer(peer m.Peer) (int, error) {
 	// Получение пиров, который связаны с данном каналом
 	peers, ok := s.streams[peer.IdChannel]
 	if !ok {
-		return ErrInvalidIdChannelWhenRemoveCode, ErrInvalidIdChannelWhenRemove
+		return ErrInvalidIdChannelWhenRemove
 	}
 
 	// Получение токена, который свзан с данным пиром
 	token, ok := peers[peer]
 	if !ok {
-		return ErrInvalidPeerWhenRemoveCode, ErrInvalidPeerWhenRemove
+		return ErrInvalidPeerWhenRemove
 	}
 
 	// Пытаемся достать канал, который связан с токеном, закрываем его и удаляем
@@ -135,7 +130,7 @@ func (s *storage) DeletePeer(peer m.Peer) (int, error) {
 	// Рассылка всем об удалении
 	go s.sendPeers(peer.IdChannel)
 
-	return Ok, nil
+	return nil
 }
 
 // sendPeers. Вызывается каждый раз, когда происходят изменения в храненилищах

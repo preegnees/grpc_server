@@ -69,6 +69,6 @@ SavePeer: сохранение пира при подключении;
 DeletePeer: удаление пира при отключении;
 */
 type IStreamStorage interface {
-	SavePeer(peer Peer) (<-chan map[Peer]struct{}, int, error)
-	DeletePeer(peer Peer) (int, error)
+	SavePeer(peer Peer) (<-chan map[Peer]struct{}, error)
+	DeletePeer(peer Peer) error
 }
