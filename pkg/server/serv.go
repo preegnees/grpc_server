@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -10,18 +9,18 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	
+	st "streaming/pkg/database/storage"
+	m "streaming/pkg/models"
+	pb "streaming/pkg/proto"
+	logger "streaming/pkg/logger"
+	e "streaming/pkg/errors"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
-
-	logger "streaming/pkg/logger"
 	logrus "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/peer"
-
-	st "streaming/pkg/database/storage"
-	m "streaming/pkg/models"
-	pb "streaming/pkg/proto"
 )
 
 type rpcServer struct {
@@ -220,17 +219,19 @@ func (c *cli) RunForward() {
 func (s *rpcServer) Streaming(stream pb.StreamingService_StreamingServer) error {
 
 	peer, err := s.getPeer(stream)
+	defer s.log.WithFields(logrus.Fields{"clientInfo": logger.CliConn{Ip: "__ip__", Peer: *peer}}).Debug("Клиент отключился")
 	if err != nil {
+		s.log.Errorf("Ошибка при получении пира (getPeer). Ошибка:%v", err)
 		return err
 	}
 
 	ch, err := s.storage.SavePeer(*peer)
 	if err != nil {
+		s.log.Errorf("Ошибка при сохранении пира (SavePeer). Ошибка:%v", err)
 		return err
 	}
 
 	deleteThisPeer := func() error {
-		s.log.WithFields(logrus.Fields{"clientInfo": logger.CliConn{Ip: "__ip__", Peer: *peer}}).Debug("Клиент отключился")
 		return s.storage.DeletePeer(*peer)
 	}
 	newCli := cli{
@@ -264,17 +265,21 @@ func (s *rpcServer) getPeer(stream pb.StreamingService_StreamingServer) (*m.Peer
 	md, ok := metadata.FromIncomingContext(stream.Context())
 	fmt.Println(md)
 	if !ok {
-		return nil, errors.New("Error with metadata")
+		s.log.Errorf("getPeer. Ошибка:%v", e.ErrGetMetadata)
+		return nil, e.ErrGetMetadata
 	}
 
 	peer, ok := peer.FromContext(stream.Context())
+	var ip string = ""
 	if !ok {
-		return nil, errors.New("Error with peer")
+		s.log.Errorf("Ошибка при получении ip из библиотека Peer")
+		ip = "err no ip"
+	} else {
+		ip = peer.Addr.String()
 	}
-	ip := peer.Addr.String()
 
 	if len(md["idchannel"]) != 1 || len(md["name"]) != 1 || len(md["allowednames"]) != 1 {
-		return nil, fmt.Errorf("$No metadata")
+		return nil, e.ErrNoMetadata
 	}
 
 	i := m.IdChannel(md["idchannel"][0])
@@ -282,9 +287,11 @@ func (s *rpcServer) getPeer(stream pb.StreamingService_StreamingServer) (*m.Peer
 	a := md["allowednames"][0]
 	g := stream
 	if i == "" || len(i) < 8 {
-		return nil, fmt.Errorf("Invalid IdChannel, mast be not empty and len > 8, ip:%s", ip)
+		s.log.Errorf("getPeer. Ошибка:%v", e.ErrInvalidIdChannel)
+		return nil, e.ErrInvalidIdChannel
 	} else if n == "" {
-		return nil, fmt.Errorf("Invalid Name, mast be not empty, ip:%s", ip)
+		s.log.Errorf("getPeer. Ошибка:%v", e.ErrInvalidIdName)
+		return nil, e.ErrInvalidIdName
 	}
 
 	cc := logger.CliConn{

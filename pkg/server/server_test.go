@@ -73,8 +73,8 @@ func TestXxx(t *testing.T) {
 				Reconnect:         true,
 				ReconnectTimeout:  15,
 				IdChannel:         "1234567890",
-				Name:              "Name1",
-				AllowedNames:      "Name1, Name2, Name4",
+				Name:              "Name2",
+				AllowedNames:      "Name1, Name2, Name3",
 			},
 		)
 		if err != nil {
@@ -83,6 +83,7 @@ func TestXxx(t *testing.T) {
 	}()
 
 	time.Sleep(6 * time.Second)
-	cli1.Stop()
-	cli2.Stop()
+	// cli1.Stop()
+	// cli2.Stop()
+	// time.Sleep(1 * time.Second)
 }
