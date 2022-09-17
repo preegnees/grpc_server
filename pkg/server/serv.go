@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -16,6 +15,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 
+	logger "streaming/pkg/logger"
 	logrus "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/peer"
 
@@ -35,10 +35,9 @@ type rpcServer struct {
 	runningCancel context.CancelFunc
 	running       bool
 	grpcServer    *grpc.Server
-	logger        *logrus.Logger
+	log           *logrus.Logger
 	cnf           m.CnfServer
 	storage       m.IStreamStorage
-	isDebug       bool
 }
 
 var _ m.IServ = (*rpcServer)(nil)
@@ -64,29 +63,30 @@ func (s *rpcServer) Run(cnf m.CnfServer) error {
 
 	select {
 	case <-sigCh:
-		log.Println("Получен сигнал для завершеня работы")
+		s.log.Info("Получен сигнал для завершеня работы")
 		s.stop()
 		return nil
 	case err := <-s.errCh:
-		s.logger.Printf("Выключение сервера, возникла ошибка")
+		s.log.Errorf("Выключение сервера, возникла ошибка, err := %v", err)
 		s.stop()
 		return err
 	}
 }
 
 func (s *rpcServer) Stop() {
+	s.log.Info("Остановка сервера")
 	s.gracefulStop()
 }
 
 func (s *rpcServer) init() {
 
 	s.running = false
-	s.logger = log.New(os.Stdout, "grpc: ", log.Ldate|log.Ltime|log.LUTC)
 	s.stopCh = make(chan struct{})
 	s.restartCh = make(chan struct{})
 	s.doneCh = make(chan struct{})
 	s.errCh = make(chan error)
-	s.storage = st.NewStorage()
+	s.storage = st.NewStorage(logger.NewLogger(s.cnf.Debug, s.cnf.StreamStoragePathLog))
+	s.log = logger.NewLogger(s.cnf.Debug, s.cnf.ServerPathLog)
 }
 
 func (s *rpcServer) start() {
@@ -110,14 +110,14 @@ func (s *rpcServer) start() {
 				s.runningCancel()
 				s.errCh <- fmt.Errorf("$Ошибка при прослушивании сети, err:=%v", err)
 			}
-			s.logger.Printf("Запуск сервера на адресе %s\n", s.cnf.Addr)
+			s.log.Infof("Запуск сервера на адресе %s", s.cnf.Addr)
 			s.running = true
 			s.grpcServer.Serve(listener)
 		}()
 
 		select {
 		case <-s.stopCh:
-			s.logger.Println("Выключение сервера, был получен сигнал прерывания")
+			s.log.Info("Выключение сервера, был получен сигнал прерывания")
 			s.gracefulStop()
 			s.running = false
 			s.doneCh <- struct{}{}
@@ -127,6 +127,7 @@ func (s *rpcServer) start() {
 }
 
 func (s *rpcServer) gracefulStop() {
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.cnf.ShutdownTimeout)*time.Second)
 	defer cancel()
 
@@ -147,12 +148,12 @@ func (s *rpcServer) gracefulStop() {
 	case <-closed:
 		close(closed)
 	case <-ctx.Done():
-		s.logger.Printf("Превышено время отключения %d секунд, принудительное завершение.\n", s.cnf.ShutdownTimeout)
+		s.log.Debugf("Превышено время отключения %d секунд, принудительное завершение.", s.cnf.ShutdownTimeout)
 		s.grpcServer.Stop()
 		close(closed)
 		closed = nil
 	}
-	s.logger.Println("Север остановлен")
+	s.log.Info("Север остановлен")
 }
 
 func (s *rpcServer) stop() {
@@ -168,6 +169,7 @@ type cli struct {
 	all            map[m.Peer]struct{}
 	ch             <-chan map[m.Peer]struct{}
 	deleteThisPeer func() error
+	log            *logrus.Logger
 }
 
 func (c *cli) RunForward() {
@@ -188,11 +190,11 @@ func (c *cli) RunForward() {
 		for {
 			in, err := c.current.GrpcStream.Recv()
 			if err == io.EOF {
-				log.Println(fmt.Errorf("$Ошибка EOF при чтении, err:=%v", err))
+				c.log.Warn(fmt.Errorf("$Ошибка EOF при чтении, err:=%v", err))
 				c.deleteThisPeer()
 				break
 			} else if err != nil {
-				log.Println(fmt.Errorf("$Ошибка при чтении сооьбщения, err:=%v", err))
+				c.log.Warn(fmt.Errorf("$Ошибка при чтении сооьбщения, err:=%v", err))
 				break
 			}
 
@@ -203,11 +205,11 @@ func (c *cli) RunForward() {
 				go func(p m.Peer) {
 					err := p.GrpcStream.Send(in)
 					if err == io.EOF {
-						log.Println(fmt.Errorf("$Ошибка EOF при писании, err:=%v", err))
+						c.log.Warn(fmt.Errorf("$Ошибка EOF при писании, err:=%v", err))
 						return
 					}
 					if err != nil {
-						log.Println(fmt.Errorf("$Ошибка при чтении писании, err:=%v", err))
+						c.log.Warn(fmt.Errorf("$Ошибка при чтении писании, err:=%v", err))
 					}
 				}(p)
 			}
@@ -228,6 +230,7 @@ func (s *rpcServer) Streaming(stream pb.StreamingService_StreamingServer) error 
 	}
 
 	deleteThisPeer := func() error {
+		s.log.WithFields(logrus.Fields{"clientInfo": logger.CliConn{Ip: "__ip__", Peer: *peer}}).Debug("Клиент отключился")
 		return s.storage.DeletePeer(*peer)
 	}
 	newCli := cli{
@@ -235,27 +238,28 @@ func (s *rpcServer) Streaming(stream pb.StreamingService_StreamingServer) error 
 		all:            make(map[m.Peer]struct{}),
 		ch:             ch,
 		deleteThisPeer: deleteThisPeer,
+		log:            s.log,
 	}
 
-	s.logger.Println("клиент подключился", stream)
+	s.log.Infof("клиент подключился, stream:%v", stream)
 
 	newCli.RunForward()
 
 	for {
 		select {
 		case <-stream.Context().Done():
-			s.logger.Println("Клиент отключился, контекст завершен")
+			s.log.Info("Клиент отключился, контекст завершен")
 			deleteThisPeer()
 			return nil
 		case <-s.runningCtx.Done():
-			s.logger.Println("Главный контекст завершен")
+			s.log.Info("Главный контекст завершен")
 			deleteThisPeer()
 			return nil
 		}
 	}
 }
 
-func (r *rpcServer) getPeer(stream pb.StreamingService_StreamingServer) (*m.Peer, error) {
+func (s *rpcServer) getPeer(stream pb.StreamingService_StreamingServer) (*m.Peer, error) {
 
 	md, ok := metadata.FromIncomingContext(stream.Context())
 	fmt.Println(md)
@@ -282,6 +286,18 @@ func (r *rpcServer) getPeer(stream pb.StreamingService_StreamingServer) (*m.Peer
 	} else if n == "" {
 		return nil, fmt.Errorf("Invalid Name, mast be not empty, ip:%s", ip)
 	}
+
+	cc := logger.CliConn{
+		Ip: ip,
+		Peer: m.Peer{
+			IdChannel: i,
+			Name: n,
+			AllowedNames: a,
+			GrpcStream: g,
+		},
+	}
+
+	s.log.WithFields(logrus.Fields{"clientInfo": cc}).Info("Клиент подключился")
 
 	return &m.Peer{
 		IdChannel:    i,

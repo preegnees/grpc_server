@@ -25,6 +25,9 @@ func TestMain(m *testing.M) {
 				ShutdownTimeout: 2,
 				CertPem:         "C:\\Users\\secrr\\Desktop\\my_streaming\\tls\\cert.pem",
 				KeyPem:          "C:\\Users\\secrr\\Desktop\\my_streaming\\tls\\key.pem",
+				Debug: false,
+				StreamStoragePathLog: "C:\\Users\\secrr\\Desktop\\my_streaming\\logs\\mydb.txt",
+				ServerPathLog: "C:\\Users\\secrr\\Desktop\\my_streaming\\logs\\server.txt",
 			},
 		)
 		if err != nil {
