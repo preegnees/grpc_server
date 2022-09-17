@@ -8,11 +8,13 @@ import (
 
 // CnfServer. Конифгурация для сервера
 type CnfServer struct {
-	Addr            string
-	ShutdownTimeout int
-	CertPem         string
-	KeyPem          string
-	Debig           bool
+	Addr                 string
+	ShutdownTimeout      int
+	CertPem              string
+	KeyPem               string
+	Debug                bool
+	StreamStoragePathLog string
+	ServerPathLog        string
 }
 
 // CnfClient. Конфигурация для клиента
